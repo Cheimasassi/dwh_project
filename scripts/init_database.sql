@@ -1,16 +1,53 @@
-if exists (select 1 from sys.databases where name ='DataWarehouse')
-begin
-	alter Database Datawarehouse SET SINGLE8USER WITH ROLLBACK IMMEDIATE ;
-	DROP DATABASE DataWarehouse;
+/*
+===============================================================================
+Data Warehouse Initialization
+===============================================================================
+Purpose:
+    - Creates the DataWarehouse database and its data warehouse schemas.
+    - Removes the existing database when a previous version is present.
+
+Schemas:
+    - Bronze: Raw data loaded from source systems.
+    - Silver: Cleaned and transformed data.
+    - Gold: Business-ready data for reporting and analytics.
+===============================================================================
+*/
+
+
+-- =============================================================================
+-- Create Database
+-- =============================================================================
+
+IF EXISTS (
+    SELECT 1
+    FROM sys.databases
+    WHERE name = 'DataWarehouse'
+)
+BEGIN
+    ALTER DATABASE DataWarehouse
+        SET SINGLE_USER
+        WITH ROLLBACK IMMEDIATE;
+
+    DROP DATABASE DataWarehouse;
 END;
-Go
+GO
+
+CREATE DATABASE DataWarehouse;
+GO
+
+USE DataWarehouse;
+GO
 
 
-create database DataWarehouse;
-use DataWarehouse;
-Go
-create SCHEMA bronze;
-Go
-create SCHEMA Silver;
-Go
-create SCHEMA Gold;
+-- =============================================================================
+-- Create Data Warehouse Schemas
+-- =============================================================================
+
+CREATE SCHEMA Bronze;
+GO
+
+CREATE SCHEMA Silver;
+GO
+
+CREATE SCHEMA Gold;
+GO
