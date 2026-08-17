@@ -1,31 +1,64 @@
+/*
+===============================================================================
+Gold Layer - Data Model Validation
+===============================================================================
+Purpose:
+    - Validate the integrity of the Gold layer dimensional model.
+    - Ensure surrogate keys are unique.
+    - Verify that fact records are correctly connected to their dimensions.
 
-SELECT 
+Validation Areas:
+    1. Customer key uniqueness in gold.dim_customers.
+    2. Product key uniqueness in gold.dim_products.
+    3. Referential integrity between gold.fact_sales and its dimensions.
+
+Expected Result:
+    - No duplicate customer keys.
+    - No duplicate product keys.
+    - No fact records with missing customer or product dimension matches.
+===============================================================================
+*/
+
+
+-- =============================================================================
+-- Check Customer Key Uniqueness
+-- =============================================================================
+
+SELECT
     customer_key,
     COUNT(*) AS duplicate_count
 FROM gold.dim_customers
 GROUP BY customer_key
 HAVING COUNT(*) > 1;
 
--- ====================================================================
--- Checking 'gold.product_key'
--- ====================================================================
--- Check for Uniqueness of Product Key in gold.dim_products
--- Expectation: No results 
-SELECT 
+
+-- =============================================================================
+-- Check Product Key Uniqueness
+-- =============================================================================
+
+SELECT
     product_key,
     COUNT(*) AS duplicate_count
 FROM gold.dim_products
 GROUP BY product_key
 HAVING COUNT(*) > 1;
 
--- ====================================================================
--- Checking 'gold.fact_sales'
--- ====================================================================
--- Check the data model connectivity between fact and dimensions
-SELECT * 
+
+-- =============================================================================
+-- Check Fact-to-Dimension Connectivity
+-- =============================================================================
+
+SELECT
+    f.*,
+    c.customer_key AS matched_customer_key,
+    p.product_key AS matched_product_key
 FROM gold.fact_sales f
+
 LEFT JOIN gold.dim_customers c
-ON c.customer_key = f.customer_key
+    ON c.customer_id = f.customer_id
+
 LEFT JOIN gold.dim_products p
-ON p.product_key = f.product_key
-WHERE p.product_key IS NULL OR c.customer_key IS NULL  
+    ON p.product_key = f.product_key
+
+WHERE c.customer_key IS NULL
+    OR p.product_key IS NULL;
