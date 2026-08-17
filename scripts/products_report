@@ -1,0 +1,167 @@
+/*
+===============================================================================
+Product Report
+===============================================================================
+Purpose:
+    - Provides a product-level view of sales performance and customer reach.
+    - Supports product performance analysis and segmentation.
+
+Highlights:
+    1. Combines sales and product data to build a product-level profile.
+    2. Calculates key product metrics:
+       - product lifespan
+       - recency
+       - total orders
+       - total customers
+       - total sales
+       - total quantity sold
+       - average selling price
+       - average order revenue
+       - average monthly revenue
+    3. Segments products based on total sales performance.
+
+Product Segments:
+    - High-Performer: Total sales above $50,000.
+    - Mid-Range:     Total sales between $10,000 and $50,000.
+    - Low-Performer: Total sales below $10,000.
+===============================================================================
+*/
+
+
+-- =============================================================================
+-- Create Report: gold.report_products
+-- =============================================================================
+
+IF OBJECT_ID('gold.report_products', 'V') IS NOT NULL
+    DROP VIEW gold.report_products;
+GO
+
+CREATE VIEW gold.report_products AS
+
+
+-- =============================================================================
+-- 1. Base Query
+-- =============================================================================
+
+WITH base_query AS (
+    SELECT
+        f.order_number,
+        f.order_date,
+        f.customer_id,
+        f.sales,
+        f.quantity,
+        p.product_key,
+        p.product_name,
+        p.category,
+        p.subcategory,
+        p.product_cost
+
+    FROM gold.fact_sales f
+
+    LEFT JOIN gold.dim_products p
+        ON f.product_key = p.product_key
+
+    WHERE f.order_date IS NOT NULL
+),
+
+
+-- =============================================================================
+-- 2. Product Aggregation
+-- =============================================================================
+
+product_aggregations AS (
+    SELECT
+        product_key,
+        product_name,
+        category,
+        subcategory,
+        product_cost,
+
+        DATEDIFF(
+            MONTH,
+            MIN(order_date),
+            MAX(order_date)
+        ) AS lifespan,
+
+        MAX(order_date) AS last_sale_date,
+
+        COUNT(DISTINCT order_number) AS total_orders,
+
+        COUNT(DISTINCT customer_id) AS total_customers,
+
+        SUM(sales) AS total_sales,
+
+        SUM(quantity) AS total_quantity,
+
+        ROUND(
+            AVG(
+                CAST(sales AS FLOAT)
+                / NULLIF(quantity, 0)
+            ),
+            1
+        ) AS avg_selling_price
+
+    FROM base_query
+
+    GROUP BY
+        product_key,
+        product_name,
+        category,
+        subcategory,
+        product_cost
+)
+
+
+-- =============================================================================
+-- 3. Final Product Report
+-- =============================================================================
+
+SELECT
+    product_key,
+    product_name,
+    category,
+    subcategory,
+    product_cost,
+    last_sale_date,
+
+    DATEDIFF(
+        MONTH,
+        last_sale_date,
+        GETDATE()
+    ) AS recency_in_months,
+
+    CASE
+        WHEN total_sales > 50000 THEN 'High-Performer'
+        WHEN total_sales >= 10000 THEN 'Mid-Range'
+        ELSE 'Low-Performer'
+    END AS product_segment,
+
+    lifespan,
+    total_orders,
+    total_sales,
+    total_quantity,
+    total_customers,
+    avg_selling_price,
+
+    -- Average Order Revenue
+    CASE
+        WHEN total_orders = 0 THEN 0
+        ELSE total_sales / total_orders
+    END AS avg_order_revenue,
+
+    -- Average Monthly Revenue
+    CASE
+        WHEN lifespan = 0 THEN total_sales
+        ELSE total_sales / lifespan
+    END AS avg_monthly_revenue
+
+FROM product_aggregations;
+GO
+
+
+-- =============================================================================
+-- Validate Report
+-- =============================================================================
+
+SELECT *
+FROM gold.report_products;
