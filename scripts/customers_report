@@ -1,0 +1,151 @@
+/*
+===============================================================================
+Customer Report
+===============================================================================
+Purpose:
+    - Provides a customer-level view of purchasing behavior and performance.
+    - Supports customer segmentation and sales analysis.
+
+Highlights:
+    1. Combines customer and sales data to build a customer-level profile.
+    2. Groups customers by age and customer segment.
+    3. Calculates key metrics:
+       - total orders
+       - total sales
+       - total quantity purchased
+       - total products purchased
+       - last order date
+       - customer lifespan
+       - average order value
+       - average monthly spend
+
+Customer Segments:
+    - VIP:      Customer with at least 12 months of activity and over $5,000
+               in total sales.
+    - Regular:  Customer with at least 12 months of activity and up to $5,000
+               in total sales.
+    - New:      Customer with less than 12 months of activity.
+===============================================================================
+*/
+
+
+-- =============================================================================
+-- Create Report: gold.report_customers
+-- =============================================================================
+
+IF OBJECT_ID('gold.report_customers', 'V') IS NOT NULL
+    DROP VIEW gold.report_customers;
+GO
+
+CREATE VIEW gold.report_customers AS
+
+
+-- =============================================================================
+-- 1. Base Query
+-- =============================================================================
+
+WITH base_query AS (
+    SELECT
+        f.order_number,
+        f.product_key,
+        f.order_date,
+        f.sales,
+        f.quantity,
+        c.customer_key,
+        c.customer_number,
+        CONCAT(c.firstname, ' ', c.lastname) AS full_name,
+        DATEDIFF(YEAR, c.birthdate, GETDATE()) AS age
+
+    FROM gold.fact_sales f
+
+    LEFT JOIN gold.dim_customers c
+        ON c.customer_id = f.customer_id
+
+    WHERE f.order_date IS NOT NULL
+),
+
+
+-- =============================================================================
+-- 2. Customer Aggregation
+-- =============================================================================
+
+customer_aggregation AS (
+    SELECT
+        customer_key,
+        customer_number,
+        full_name,
+        age,
+        COUNT(DISTINCT order_number) AS total_orders,
+        SUM(sales) AS total_sales,
+        SUM(quantity) AS total_quantity,
+        COUNT(DISTINCT product_key) AS total_products,
+        MAX(order_date) AS last_order_date,
+        DATEDIFF(
+            MONTH,
+            MIN(order_date),
+            MAX(order_date)
+        ) AS lifespan
+
+    FROM base_query
+
+    GROUP BY
+        customer_key,
+        customer_number,
+        full_name,
+        age
+)
+
+
+-- =============================================================================
+-- 3. Final Customer Report
+-- =============================================================================
+
+SELECT
+    customer_key,
+    customer_number,
+    full_name,
+    age,
+
+    CASE
+        WHEN age < 20 THEN 'Under 20'
+        WHEN age BETWEEN 20 AND 29 THEN '20-29'
+        WHEN age BETWEEN 30 AND 39 THEN '30-39'
+        WHEN age BETWEEN 40 AND 49 THEN '40-49'
+        ELSE '50 and above'
+    END AS age_group,
+
+    CASE
+        WHEN lifespan >= 12 AND total_sales > 5000 THEN 'VIP'
+        WHEN lifespan >= 12 AND total_sales <= 5000 THEN 'Regular'
+        ELSE 'New'
+    END AS customer_segment,
+
+    last_order_date,
+    total_orders,
+    total_sales,
+    total_quantity,
+    total_products,
+    lifespan,
+
+    -- Average order value
+    CASE
+        WHEN total_orders = 0 THEN 0
+        ELSE total_sales / total_orders
+    END AS avg_order_value,
+
+    -- Average monthly spend
+    CASE
+        WHEN lifespan = 0 THEN total_sales
+        ELSE total_sales / lifespan
+    END AS avg_monthly_spend
+
+FROM customer_aggregation;
+GO
+
+
+-- =============================================================================
+-- Validate Report
+-- =============================================================================
+
+SELECT *
+FROM gold.report_customers;
