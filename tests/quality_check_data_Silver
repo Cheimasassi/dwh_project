@@ -1,70 +1,194 @@
-------duplicate or nulls in the primary key 
-  select prd_id, count(*) from bronze.crm_prd_info group by prd_id having count(*) >1 or prd_id is null
-  ------
-  SELECT [prd_id],
-       [prd_key]
-      ,replace(substring([prd_key],1,5),'-','_') as cat_id,
-      substring([prd_key],7,Len(prd_key)) as prd_key
-      ,[prd_name]
-      ,[prd_cost]
-      ,[prd_line]
-      ,[prd_start_date]
-      ,[prd_end_date]
-  FROM [DataWarehouse].[bronze].[crm_prd_info] where replace(substring([prd_key],1,5),'-','_') not in (select distinct id from bronze.erp_category)
-  --------------
-  SELECT [prd_id],
-       [prd_key]
-      ,replace(substring([prd_key],1,5),'-','_') as cat_id,
-      substring([prd_key],7,Len(prd_key)) as prd_key
-      ,[prd_name]
-      ,[prd_cost]
-      ,[prd_line]
-      ,[prd_start_date]
-      ,[prd_end_date]
-  FROM [DataWarehouse].[bronze].[crm_prd_info] where prd_key in ( select sls_prd_key from bronze.crm_sales_details)
-  -------------
-  select prd_cost from bronze.crm_prd_info where prd_cost < 0 or prd_cost is null
-  -------------
-  select * from bronze.crm_prd_info where prd_end_date < prd_start_date
-  select prd_id,
-  prd_key,prd_name,
-  prd_start_date,
-  prd_end_date,Dateadd(day,-1,lead(prd_start_date) over (partition by prd_key order by prd_start_date )) as prd_end_dt_test
-  from bronze.crm_prd_info where prd_key in ('AC-HE-HL-U509-R','AC-HE-HL-U509')
-  ---------------------
-  --------
-  select nullif(sls_ship_dt,0) sls_ship_dt from
-  bronze.crm_sales_details where 
-  sls_ship_dt<=0 or len(sls_ship_dt)!=8 or
-  sls_ship_dt> 20500101 or
- sls_ship_dt> 19000101
-  ------
-    select nullif(sls_order_dt,0) sls_order_dt from
-  bronze.crm_sales_details where 
-  sls_order_dt<=0 or len(sls_order_dt)!=8 or
-  sls_order_dt> 20500101 or
-  sls_order_dt> 19000101
-  -------
-     select nullif(sls_due_dt,0) sls_due_dt from
-  bronze.crm_sales_details where 
-  sls_due_dt<=0 or len(sls_due_dt)!=8 or
- sls_due_dt> 20500101 or
-  sls_due_dt> 19000101
-  --------
-  select * from bronze.crm_sales_details where sls_order_dt > sls_ship_dt or sls_order_dt>sls_due_dt
-  --------
-  select distinct
-  sls_sales,sls_quantity,
-  sls_price from Silver.crm_sales_details where 
-  sls_sales != sls_quantity * sls_price 
-  or sls_sales is null 
-  or sls_quantity is null 
-  or sls_price is null 
-  or sls_sales <=0 
-  or sls_quantity <=0
-  or sls_price <=0 
-  order by sls_sales, sls_quantity,sls_price
-  ---------------------
-  select sls_price, sls_sales ,sls_quantity from bronze.crm_sales_details where sls_quantity >2
-  -----
-  select * from Silver.crm_sales_details
+/*
+===============================================================================
+Data Quality Checks
+===============================================================================
+Purpose:
+    - Validate data quality across the Bronze and Silver layers.
+    - Identify duplicates, nulls, invalid references, inconsistent dates,
+      and incorrect sales calculations.
+    - Support data validation before using the data for analytics.
+
+Validation Areas:
+    1. Product primary key validation.
+    2. Product category and sales references.
+    3. Product cost validation.
+    4. Product date consistency.
+    5. Sales date validation.
+    6. Sales order, shipping, and due date consistency.
+    7. Sales, quantity, and price consistency.
+    8. Silver layer validation.
+
+Expected Result:
+    - Queries should return no unexpected records.
+    - Any returned records should be investigated before the data is
+      considered ready for downstream analysis.
+===============================================================================
+*/
+
+
+-- =============================================================================
+-- Product Data Quality
+-- =============================================================================
+
+-- Check for duplicate or NULL product IDs
+SELECT
+    prd_id,
+    COUNT(*) AS record_count
+FROM Bronze.crm_prd_info
+GROUP BY prd_id
+HAVING COUNT(*) > 1
+    OR prd_id IS NULL;
+
+
+-- Check for product categories that do not exist in the ERP category table
+SELECT
+    prd_id,
+    prd_key,
+    REPLACE(SUBSTRING(prd_key, 1, 5), '-', '_') AS cat_id,
+    SUBSTRING(prd_key, 7, LEN(prd_key)) AS product_key,
+    prd_name,
+    prd_cost,
+    prd_line,
+    prd_start_date,
+    prd_end_date
+FROM Bronze.crm_prd_info
+WHERE REPLACE(SUBSTRING(prd_key, 1, 5), '-', '_')
+      NOT IN (
+          SELECT DISTINCT id
+          FROM Bronze.erp_category
+      );
+
+
+-- Check whether all product keys used in sales exist in the product table
+SELECT
+    prd_id,
+    prd_key,
+    REPLACE(SUBSTRING(prd_key, 1, 5), '-', '_') AS cat_id,
+    SUBSTRING(prd_key, 7, LEN(prd_key)) AS product_key,
+    prd_name,
+    prd_cost,
+    prd_line,
+    prd_start_date,
+    prd_end_date
+FROM Bronze.crm_prd_info
+WHERE prd_key IN (
+    SELECT sls_prd_key
+    FROM Bronze.crm_sales_details
+);
+
+
+-- Check for invalid or missing product costs
+SELECT
+    prd_cost
+FROM Bronze.crm_prd_info
+WHERE prd_cost < 0
+    OR prd_cost IS NULL;
+
+
+-- Check for invalid product date ranges
+SELECT *
+FROM Bronze.crm_prd_info
+WHERE prd_end_date < prd_start_date;
+
+
+-- Validate product end dates using the next product start date
+SELECT
+    prd_id,
+    prd_key,
+    prd_name,
+    prd_start_date,
+    prd_end_date,
+    DATEADD(
+        DAY,
+        -1,
+        LEAD(prd_start_date) OVER (
+            PARTITION BY prd_key
+            ORDER BY prd_start_date
+        )
+    ) AS expected_end_date
+FROM Bronze.crm_prd_info
+WHERE prd_key IN (
+    'AC-HE-HL-U509-R',
+    'AC-HE-HL-U509'
+);
+
+
+-- =============================================================================
+-- Sales Date Validation
+-- =============================================================================
+
+-- Check for invalid shipping dates
+SELECT
+    sls_ship_dt
+FROM Bronze.crm_sales_details
+WHERE sls_ship_dt <= 0
+    OR LEN(sls_ship_dt) <> 8
+    OR sls_ship_dt > 20500101
+    OR sls_ship_dt < 19000101;
+
+
+-- Check for invalid order dates
+SELECT
+    sls_order_dt
+FROM Bronze.crm_sales_details
+WHERE sls_order_dt <= 0
+    OR LEN(sls_order_dt) <> 8
+    OR sls_order_dt > 20500101
+    OR sls_order_dt < 19000101;
+
+
+-- Check for invalid due dates
+SELECT
+    sls_due_dt
+FROM Bronze.crm_sales_details
+WHERE sls_due_dt <= 0
+    OR LEN(sls_due_dt) <> 8
+    OR sls_due_dt > 20500101
+    OR sls_due_dt < 19000101;
+
+
+-- Check chronological consistency between order, shipping, and due dates
+SELECT *
+FROM Bronze.crm_sales_details
+WHERE sls_order_dt > sls_ship_dt
+    OR sls_order_dt > sls_due_dt;
+
+
+-- =============================================================================
+-- Sales Calculation Validation
+-- =============================================================================
+
+-- Check for inconsistent sales, quantity, and price values
+SELECT DISTINCT
+    sls_sales,
+    sls_quantity,
+    sls_price
+FROM Silver.crm_sales_details
+WHERE sls_sales <> sls_quantity * sls_price
+    OR sls_sales IS NULL
+    OR sls_quantity IS NULL
+    OR sls_price IS NULL
+    OR sls_sales <= 0
+    OR sls_quantity <= 0
+    OR sls_price <= 0
+ORDER BY
+    sls_sales,
+    sls_quantity,
+    sls_price;
+
+
+-- Review sales records with quantities greater than two
+SELECT
+    sls_price,
+    sls_sales,
+    sls_quantity
+FROM Bronze.crm_sales_details
+WHERE sls_quantity > 2;
+
+
+-- =============================================================================
+-- Silver Layer Validation
+-- =============================================================================
+
+SELECT *
+FROM Silver.crm_sales_details;
